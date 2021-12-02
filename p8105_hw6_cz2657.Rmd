@@ -85,15 +85,56 @@ birthweight_df %>%
   ggplot(aes(x = momage, y = bwt)) +
   geom_point(alpha = 0.3)
 
-fit_mine = lm(bwt ~ blength + gaweeks + malform + momage, data = birthweight_df)
+fit_mine = lm(bwt ~ blength + gaweeks + momage + bhead*babysex, data = birthweight_df)
+
+summary(fit_mine)
+
+modelr::add_residuals(birthweight_df, fit_mine) %>% 
+  ggplot(aes(x = bwt, y = resid)) + 
+  geom_point()
+
+modelr::add_residuals(birthweight_df, fit_mine) %>% 
+ggplot(aes(x = resid)) + 
+  geom_density() + 
+  xlim(-200, 200)
 
 fit_length = lm(bwt ~ blength + gaweeks, data = birthweight_df)
+
+summary(fit_length)
+
 fit_interaction = lm(bwt ~ bhead*blength*babysex, data = birthweight_df)
+
+summary(fit_interaction)
 ```
 
+## Problem 2
 
+```{r}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") %>%
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) %>%
+  select(name, id, everything())
+```
 
+```{r}
 
+```
+
+bootstrap_weather = 
+  weather_df %>% 
+    bootstrap(n = 5000, id = "strap_number") %>% 
+    mutate(
+      models = map(strap, ~lm( tmax ~ tmin, data = .x)), 
+      results = map(models, broom::tidy), 
+      r_square = broom::glance()
+  )
 
 
 
