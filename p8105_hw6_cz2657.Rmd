@@ -1,0 +1,99 @@
+---
+title: "Homework 6"
+output: github_document
+---
+
+```{r}
+library(tidyverse)
+library(viridis)
+
+library(modelr)
+library(mgcv)
+library(patchwork)
+
+knitr::opts_chunk$set(
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%"
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+## Problem 1
+
+```{r}
+birthweight_df = 
+  read_csv("data/birthweight.csv") %>% 
+  mutate(babysex = as.factor(babysex), 
+         fincome = fincome*100, 
+         frace = as.factor(frace), 
+         malform = as.factor(malform), 
+         mrace = as.factor(mrace)) 
+```
+
+Checking for missing values by grouping by factor variables to identify possible values: 
+
+```{r}
+birthweight_df %>% 
+  group_by(babysex) %>% 
+  summarize()
+
+birthweight_df %>% 
+  group_by(frace) %>% 
+  summarize()
+
+birthweight_df %>% 
+  group_by(malform) %>% 
+  summarize()
+
+birthweight_df %>% 
+  group_by(mrace) %>% 
+  summarize()
+
+birthweight_df
+
+birthweight_df %>% 
+  drop_na()
+
+```
+
+There are no missing values based on the drop NA function 
+
+** OTHER NA OPTIONS? 
+
+Fitting models
+
+```{r}
+birthweight_df %>% 
+  ggplot(aes(x = blength, y = bwt)) +
+  geom_point()
+
+birthweight_df %>% 
+  ggplot(aes(x = malform, y = bwt)) +
+  geom_point(alpha = 0.3)
+
+birthweight_df %>% 
+  ggplot(aes(x = momage, y = bwt)) +
+  geom_point(alpha = 0.3)
+
+fit_mine = lm(bwt ~ blength + gaweeks + malform + momage, data = birthweight_df)
+
+fit_length = lm(bwt ~ blength + gaweeks, data = birthweight_df)
+fit_interaction = lm(bwt ~ bhead*blength*babysex, data = birthweight_df)
+```
+
+
+
+
+
+
+
