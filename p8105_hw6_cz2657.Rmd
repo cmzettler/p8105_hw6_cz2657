@@ -3,13 +3,12 @@ title: "Homework 6"
 output: github_document
 ---
 
-```{r}
+```{r, message=FALSE}
 library(tidyverse)
 library(viridis)
 
 library(modelr)
 library(mgcv)
-library(patchwork)
 
 knitr::opts_chunk$set(
   fig.width = 6,
@@ -34,10 +33,16 @@ scale_fill_discrete = scale_fill_viridis_d
 birthweight_df = 
   read_csv("data/birthweight.csv") %>% 
   mutate(babysex = as.factor(babysex), 
+         babysex = fct_recode(babysex, "male" = "1", "female" = "2"),
          fincome = fincome*100, 
          frace = as.factor(frace), 
-         malform = as.factor(malform), 
-         mrace = as.factor(mrace)) 
+         frace = fct_recode(frace, "white" = "1", "black" = "2", "asian" = "3",
+                       "puerto rican" = "4", "other" = "8"),
+         malform = as.logical(malform), 
+         mrace = as.factor(mrace), 
+         mrace = fct_recode(mrace, "white" = "1", "black" = "2", "asian" = "3",
+                       "puerto rican" = "4"))
+
 ```
 
 Checking for missing values by grouping by factor variables to identify possible values: 
@@ -64,40 +69,73 @@ birthweight_df
 birthweight_df %>% 
   drop_na()
 
+summary(birthweight_df)
+
 ```
 
 There are no missing values based on the drop NA function 
 
-** OTHER NA OPTIONS? 
-
 Fitting models
+
+I hypothesize that a few things are key drivers of a baby's birthweight. First, baby length is likely to affect birthweight significantly. Additionally, baby's head circumference could have a similar effect. I imagine that male and female babies are relatively similar in weight, so I doubt that baby's sex has much of an effect. Mother's weight gain during pregnancy could also be an indicator of baby's weight, as well as the number of previous low birthweight babies for women who have had children prior. 
 
 ```{r}
 birthweight_df %>% 
   ggplot(aes(x = blength, y = bwt)) +
   geom_point()
+# baby length appears to increase with increasing birthweight 
 
 birthweight_df %>% 
-  ggplot(aes(x = malform, y = bwt)) +
+  ggplot(aes(x = bhead, y = bwt)) +
   geom_point(alpha = 0.3)
+# baby head circumference also appears to increase with increasing birthweight 
 
 birthweight_df %>% 
-  ggplot(aes(x = momage, y = bwt)) +
-  geom_point(alpha = 0.3)
+  ggplot(aes(x = babysex, y = bwt)) +
+  geom_point(alpha = 0.3) 
+# visual inspection appears to confirm that birthweight is not meaningfully different by sex; further inspection may help to confirm this: 
 
-fit_mine = lm(bwt ~ blength + gaweeks + momage + bhead*babysex, data = birthweight_df)
+birthweight_df %>% 
+  group_by(babysex) %>% 
+  summarize(mean_bwt = mean(bwt))
+# weights differ by less than 3% so this is not likely an informative predictor
+
+birthweight_df %>% 
+  ggplot(aes(x = wtgain, y = bwt)) +
+  geom_point(alpha = 0.3)
+# this also doesn't appear to demonstrate a meaningful trend 
+
+birthweight_df %>% 
+  ggplot(aes(x = gaweeks, y = bwt)) +
+  geom_point(alpha = 0.3)
+#There does appear to be a trend here; potentially, the interaction between gestational weeks and body length could be interesting, as a baby's head is usually first to develop and is large in proportion to the rest of its body for the majority of the gestational period
+
+birthweight_df %>% 
+  ggplot(aes(x = pnumlbw, y = bwt)) +
+  geom_point(alpha = 0.3)
+# There appear to be no values other than 0 for this variable 
+
+birthweight_df %>% 
+  group_by(pnumlbw) %>% 
+  summarize(obs = n())
+# finding confirmed - variable will not be included 
+
+fit_mine = lm(bwt ~ blength + gaweeks*bhead, data = birthweight_df)
+
+fit_mine %>% 
+  broom::tidy()
 
 summary(fit_mine)
 
 modelr::add_residuals(birthweight_df, fit_mine) %>% 
-  ggplot(aes(x = bwt, y = resid)) + 
+  add_predictions(fit_mine) %>% 
+  ggplot(aes(x = pred, y = resid)) + 
   geom_point()
+```
 
-modelr::add_residuals(birthweight_df, fit_mine) %>% 
-ggplot(aes(x = resid)) + 
-  geom_density() + 
-  xlim(-200, 200)
+Because the residuals are all grouped together around 0, we know this is a reasonable model. 
 
+```{r}
 fit_length = lm(bwt ~ blength + gaweeks, data = birthweight_df)
 
 summary(fit_length)
@@ -105,6 +143,60 @@ summary(fit_length)
 fit_interaction = lm(bwt ~ bhead*blength*babysex, data = birthweight_df)
 
 summary(fit_interaction)
+
+# maybe delete this? think about it 
+
+birthweight_df %>% 
+  add_predictions(fit_mine) %>% 
+  ggplot(aes(x = blength, y = bwt)) + 
+  geom_point(alpha = .2) + 
+  geom_smooth(aes(y = pred), color = "red", se = FALSE)
+
+birthweight_df %>% 
+  add_predictions(fit_length) %>% 
+  ggplot(aes(x = blength, y = bwt)) + 
+  geom_point(alpha = .2) + 
+  geom_smooth(aes(y = pred), color = "red", se = FALSE)
+
+birthweight_df %>% 
+  add_predictions(fit_interaction) %>% 
+  ggplot(aes(x = blength, y = bwt)) + 
+  geom_point(alpha = .2) + 
+  geom_smooth(aes(y = pred), color = "red", se = FALSE)
+```
+
+```{r}
+cv_df = 
+  crossv_mc(birthweight_df, 100) %>% 
+  mutate(
+    train = map(train, as_tibble), 
+    test = map(test, as_tibble)
+  )
+
+cv_df = 
+  cv_df %>% 
+  mutate(
+    fit_mine = map(.x = train, ~lm(bwt ~ blength + gaweeks*bhead, data = .x)), 
+    fit_length = map(.x = train, ~lm(bwt ~ blength + gaweeks, data = .x)), 
+    fit_interaction = map(.x = train, ~lm(bwt ~ bhead*blength*babysex, data = .x))
+  ) %>% 
+  mutate(
+    rmse_mine = map2_dbl(.x = fit_mine, .y = test, ~rmse(model = .x, data = .y)), 
+    rmse_length = map2_dbl(.x = fit_length, .y = test, ~rmse(model = .x, data = .y)), 
+    rmse_interaction = map2_dbl(.x = fit_interaction, .y = test, ~rmse(model = .x, data = .y)))
+```
+
+```{r}
+cv_df %>% 
+  select(.id, starts_with("rmse")) %>% 
+  pivot_longer(
+    rmse_mine:rmse_interaction, 
+    names_to = "model", 
+    values_to = "rmse", 
+    names_prefix = "rmse_"
+  ) %>% 
+  ggplot(aes(x = model, y = rmse)) + 
+  geom_boxplot()
 ```
 
 ## Problem 2
@@ -124,17 +216,41 @@ weather_df =
 ```
 
 ```{r}
+bootstrap_weather = 
+  weather_df %>% 
+    bootstrap(n = 5000, id = "strap_number")
+
+log_beta_df = 
+bootstrap_weather %>% 
+    mutate(
+      models = map(.x = strap, ~lm(tmax ~ tmin, data = .x)), 
+      results = map(models, broom::tidy), 
+      glance = map(models, broom::glance))
+
+log_beta_df %>% 
+    unnest(results) %>% 
+      select(strap:estimate) %>% 
+  pivot_wider(names_from = "term", 
+              values_from = "estimate") %>% 
+  janitor::clean_names() %>% 
+    mutate(log_beta = log(tmin*intercept)) %>% 
+  ggplot(aes(x = log_beta)) + 
+  geom_density()
+
+r_squared_df = 
+log_beta_df %>% 
+    unnest(glance) %>% 
+  janitor::clean_names() 
+
+
+r_squared_df %>% 
+  ggplot(aes(x = r_squared)) + 
+  geom_density()
+
+quantile(r_squared_df$r_squared, probs = c(0.025, 0.975), na.rm = FALSE)
 
 ```
 
-bootstrap_weather = 
-  weather_df %>% 
-    bootstrap(n = 5000, id = "strap_number") %>% 
-    mutate(
-      models = map(strap, ~lm( tmax ~ tmin, data = .x)), 
-      results = map(models, broom::tidy), 
-      r_square = broom::glance()
-  )
-
+The 95% CI for the r squared estimates is `r round(min(quantile(r_squared_df$r_squared, probs = c(0.025, 0.975), na.rm = FALSE)), digits = 3)` to `r round(max(quantile(r_squared_df$r_squared, probs = c(0.025, 0.975), na.rm = FALSE)), digits = 3)`
 
 
