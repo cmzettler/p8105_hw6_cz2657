@@ -29,7 +29,7 @@ scale_fill_discrete = scale_fill_viridis_d
 
 ## Problem 1
 
-```{r}
+```{r, message=FALSE}
 birthweight_df = 
   read_csv("data/birthweight.csv") %>% 
   mutate(babysex = as.factor(babysex), 
@@ -42,44 +42,19 @@ birthweight_df =
          mrace = as.factor(mrace), 
          mrace = fct_recode(mrace, "white" = "1", "black" = "2", "asian" = "3",
                        "puerto rican" = "4"))
-
 ```
-
-Checking for missing values by grouping by factor variables to identify possible values: 
 
 ```{r}
-birthweight_df %>% 
-  group_by(babysex) %>% 
-  summarize()
-
-birthweight_df %>% 
-  group_by(frace) %>% 
-  summarize()
-
-birthweight_df %>% 
-  group_by(malform) %>% 
-  summarize()
-
-birthweight_df %>% 
-  group_by(mrace) %>% 
-  summarize()
-
-birthweight_df
-
-birthweight_df %>% 
-  drop_na()
-
 summary(birthweight_df)
-
 ```
 
-There are no missing values based on the drop NA function 
+There are no missing values based on the summary function.  
 
-Fitting models
+Fitting model: 
 
 I hypothesize that a few things are key drivers of a baby's birthweight. First, baby length is likely to affect birthweight significantly. Additionally, baby's head circumference could have a similar effect. I imagine that male and female babies are relatively similar in weight, so I doubt that baby's sex has much of an effect. Mother's weight gain during pregnancy could also be an indicator of baby's weight, as well as the number of previous low birthweight babies for women who have had children prior. 
 
-```{r}
+```{r, message=FALSE}
 birthweight_df %>% 
   ggplot(aes(x = blength, y = bwt)) +
   geom_point()
@@ -103,12 +78,12 @@ birthweight_df %>%
 birthweight_df %>% 
   ggplot(aes(x = wtgain, y = bwt)) +
   geom_point(alpha = 0.3)
-# this also doesn't appear to demonstrate a meaningful trend 
+# this also doesn't appear to demonstrate a meaningful trend, but will be included to test. 
 
 birthweight_df %>% 
   ggplot(aes(x = gaweeks, y = bwt)) +
   geom_point(alpha = 0.3)
-#There does appear to be a trend here; potentially, the interaction between gestational weeks and body length could be interesting, as a baby's head is usually first to develop and is large in proportion to the rest of its body for the majority of the gestational period
+#There does appear to be a trend here; potentially, the interaction between gestational weeks and baby's head size could be interesting, as a baby's head development is a critical component of fetal development. 
 
 birthweight_df %>% 
   ggplot(aes(x = pnumlbw, y = bwt)) +
@@ -118,14 +93,21 @@ birthweight_df %>%
 birthweight_df %>% 
   group_by(pnumlbw) %>% 
   summarize(obs = n())
-# finding confirmed - variable will not be included 
+# finding confirmed - variable will not be meaningful, but I will test to confirm. 
 
-fit_mine = lm(bwt ~ blength + gaweeks*bhead, data = birthweight_df)
+fit_tries = lm(bwt ~ blength + pnumlbw + gaweeks*bhead + babysex, data = birthweight_df)
+
+fit_tries %>% 
+  broom::tidy()
+```
+
+pnumlbw should be deleted, based on this output. Additionally, although gaweeks is not significant, the interaction between gaweeks and bhead is, so the main effects should also be kept. babysex is surprisingly significant, so that will also remain in the model. 
+
+```{r, message=FALSE}
+fit_mine = lm(bwt ~ blength + babysex + gaweeks*bhead, data = birthweight_df)
 
 fit_mine %>% 
   broom::tidy()
-
-summary(fit_mine)
 
 modelr::add_residuals(birthweight_df, fit_mine) %>% 
   add_predictions(fit_mine) %>% 
@@ -135,7 +117,7 @@ modelr::add_residuals(birthweight_df, fit_mine) %>%
 
 Because the residuals are all grouped together around 0, we know this is a reasonable model. 
 
-```{r}
+```{r, message=FALSE}
 fit_length = lm(bwt ~ blength + gaweeks, data = birthweight_df)
 
 summary(fit_length)
@@ -143,40 +125,19 @@ summary(fit_length)
 fit_interaction = lm(bwt ~ bhead*blength*babysex, data = birthweight_df)
 
 summary(fit_interaction)
-
-# maybe delete this? think about it 
-
-birthweight_df %>% 
-  add_predictions(fit_mine) %>% 
-  ggplot(aes(x = blength, y = bwt)) + 
-  geom_point(alpha = .2) + 
-  geom_smooth(aes(y = pred), color = "red", se = FALSE)
-
-birthweight_df %>% 
-  add_predictions(fit_length) %>% 
-  ggplot(aes(x = blength, y = bwt)) + 
-  geom_point(alpha = .2) + 
-  geom_smooth(aes(y = pred), color = "red", se = FALSE)
-
-birthweight_df %>% 
-  add_predictions(fit_interaction) %>% 
-  ggplot(aes(x = blength, y = bwt)) + 
-  geom_point(alpha = .2) + 
-  geom_smooth(aes(y = pred), color = "red", se = FALSE)
 ```
 
-```{r}
+```{r, message=FALSE}
 cv_df = 
   crossv_mc(birthweight_df, 100) %>% 
   mutate(
     train = map(train, as_tibble), 
-    test = map(test, as_tibble)
-  )
+    test = map(test, as_tibble))
 
 cv_df = 
   cv_df %>% 
   mutate(
-    fit_mine = map(.x = train, ~lm(bwt ~ blength + gaweeks*bhead, data = .x)), 
+    fit_mine = map(.x = train, ~lm(bwt ~ blength + babysex + gaweeks*bhead, data = .x)), 
     fit_length = map(.x = train, ~lm(bwt ~ blength + gaweeks, data = .x)), 
     fit_interaction = map(.x = train, ~lm(bwt ~ bhead*blength*babysex, data = .x))
   ) %>% 
@@ -186,7 +147,7 @@ cv_df =
     rmse_interaction = map2_dbl(.x = fit_interaction, .y = test, ~rmse(model = .x, data = .y)))
 ```
 
-```{r}
+```{r, message=FALSE}
 cv_df %>% 
   select(.id, starts_with("rmse")) %>% 
   pivot_longer(
@@ -199,9 +160,11 @@ cv_df %>%
   geom_boxplot()
 ```
 
+My model appears more reasonable than the length model, although it is relatively comparable to the interaction model. 
+
 ## Problem 2
 
-```{r}
+```{r, message=FALSE}
 weather_df = 
   rnoaa::meteo_pull_monitors(
     c("USW00094728"),
@@ -215,41 +178,52 @@ weather_df =
   select(name, id, everything())
 ```
 
-```{r}
+```{r, message=FALSE}
 bootstrap_weather = 
   weather_df %>% 
     bootstrap(n = 5000, id = "strap_number")
 
-log_beta_df = 
+estimates_dataset = 
 bootstrap_weather %>% 
     mutate(
       models = map(.x = strap, ~lm(tmax ~ tmin, data = .x)), 
       results = map(models, broom::tidy), 
       glance = map(models, broom::glance))
 
-log_beta_df %>% 
+log_beta_df = 
+estimates_dataset %>% 
     unnest(results) %>% 
       select(strap:estimate) %>% 
   pivot_wider(names_from = "term", 
               values_from = "estimate") %>% 
   janitor::clean_names() %>% 
-    mutate(log_beta = log(tmin*intercept)) %>% 
+    mutate(log_beta = log(tmin*intercept)) 
+
+log_beta_df %>% 
   ggplot(aes(x = log_beta)) + 
   geom_density()
 
+quantile(log_beta_df$log_beta, probs = c(0.025, 0.975), na.rm = FALSE)
+```
+
+The density plot for the log of the product of the betas is relatively normally distributed, although the left side appears a bit wider than the right. The mean falls at approximately 2.01. 
+
+The 95% CI for the log(beta0*beta1)  estimates is `r round(min(quantile(log_beta_df$log_beta, probs = c(0.025, 0.975), na.rm = FALSE)), digits = 3)` to `r round(max(quantile(log_beta_df$log_beta, probs = c(0.025, 0.975), na.rm = FALSE)), digits = 3)`. 
+
+```{r, message=FALSE}
 r_squared_df = 
-log_beta_df %>% 
+estimates_dataset %>% 
     unnest(glance) %>% 
   janitor::clean_names() 
-
 
 r_squared_df %>% 
   ggplot(aes(x = r_squared)) + 
   geom_density()
 
 quantile(r_squared_df$r_squared, probs = c(0.025, 0.975), na.rm = FALSE)
-
 ```
+
+The density plot for the r-sqaured values is also relatively normally distributed, although the peak appears a bit pointed. The mean falls at approximately 0.911. 
 
 The 95% CI for the r squared estimates is `r round(min(quantile(r_squared_df$r_squared, probs = c(0.025, 0.975), na.rm = FALSE)), digits = 3)` to `r round(max(quantile(r_squared_df$r_squared, probs = c(0.025, 0.975), na.rm = FALSE)), digits = 3)`
 
